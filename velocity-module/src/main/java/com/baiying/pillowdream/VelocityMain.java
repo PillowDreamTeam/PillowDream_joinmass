@@ -13,8 +13,6 @@ import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
-import java.util.HashMap;
-import java.util.Map;
 import java.util.UUID;
 import java.util.logging.Logger;
 
@@ -35,8 +33,6 @@ public class VelocityMain {
     private String mysqlUser;
     private String mysqlPwd;
     private String pluginChannel;
-    private Object channelInstance;
-    private final Map<UUID, String> onlinePlayers = new HashMap<>();
 
     @Inject
     public VelocityMain(ProxyServer proxy, Logger logger, @DataDirectory Path dataDir) {
@@ -45,9 +41,7 @@ public class VelocityMain {
         this.dataDir = dataDir;
 
         loadConfig();
-        createChannelInstance();
-        registerPlayerEvents();
-        registerChannel();
+        initPlugin();
 
         logger.info("PillowDream_joinmass (Velocity) 插件启动成功！作者：BaiYing");
     }
@@ -90,180 +84,58 @@ public class VelocityMain {
         }
     }
 
-    private void createChannelInstance() {
-        if (pluginChannel == null || !pluginChannel.contains(":")) return;
-        String[] parts = pluginChannel.split(":", 2);
-        try {
-            Class<?> channelClass = Class.forName("com.velocitypowered.api.proxy.messages.MinecraftChannelIdentifier");
-            channelInstance = channelClass.getMethod("create", String.class, String.class).invoke(null, parts[0], parts[1]);
-        } catch (Exception e) {
-            logger.severe("创建通道实例失败：" + e.getMessage());
-        }
-    }
-
-    private void registerPlayerEvents() {
+    private void initPlugin() {
         try {
             Class<?> eventManagerClass = Class.forName("com.velocitypowered.api.event.EventManager");
             Object eventManager = proxy.getClass().getMethod("getEventManager").invoke(proxy);
             Class<?> postLoginClass = Class.forName("com.velocitypowered.api.event.connection.PostLoginEvent");
-            Class<?> playerClass = Class.forName("com.velocitypowered.api.proxy.Player");
-            
-            java.lang.reflect.Method registerMethod = null;
-            java.lang.reflect.Method[] methods = eventManagerClass.getMethods();
-            for (java.lang.reflect.Method m : methods) {
-                if (m.getName().equals("register") && m.getParameterCount() == 3) {
-                    Class<?>[] params = m.getParameterTypes();
-                    if (params[0] == Object.class && params[1] == Class.class) {
-                        registerMethod = m;
-                        break;
-                    }
-                }
-            }
-            
-            if (registerMethod != null) {
-                registerMethod.invoke(eventManager, this, postLoginClass, (java.util.function.Consumer<Object>) this::onPlayerLogin);
-                
-                Class<?> disconnectClass = null;
-                String[] allPaths = {
-                    "com.velocitypowered.api.event.connection.PlayerDisconnectedEvent",
-                    "com.velocitypowered.api.event.player.PlayerDisconnectedEvent",
-                    "com.velocitypowered.api.event.player.PlayerLeaveEvent",
-                    "com.velocitypowered.api.event.player.PlayerEvent",
-                    "com.velocitypowered.api.event.connection.DisconnectEvent"
-                };
-                for (String path : allPaths) {
+            Class<?> disconnectClass = Class.forName("com.velocitypowered.api.event.connection.DisconnectEvent");
+
+            Object loginListener = new Object() {
+                public void handle(Object event) {
                     try {
-                        disconnectClass = Class.forName(path);
-                        break;
+                        Object player = event.getClass().getMethod("getPlayer").invoke(event);
+                        UUID uuid = (UUID) player.getClass().getMethod("getUniqueId").invoke(player);
+                        String name = (String) player.getClass().getMethod("getUsername").invoke(player);
+
+                        updateMySQL(uuid, name, true);
+                        sendPluginMessage(uuid, name, "login");
+                        logger.info("玩家 " + name + " 登录代理，已同步状态");
                     } catch (Exception e) {
-                        continue;
+                        logger.severe("处理登录事件失败：" + e.getMessage());
                     }
                 }
-                
-                if (disconnectClass != null) {
-                    registerMethod.invoke(eventManager, this, disconnectClass, (java.util.function.Consumer<Object>) this::onPlayerEvent);
-                } else {
-                    startPlayerCheckTask();
-                }
-            }
-        } catch (Exception e) {
-            startPlayerCheckTask();
-            logger.severe("注册事件失败，启用定时检测：" + e.getMessage());
-        }
-    }
+            };
 
-    private void registerChannel() {
-        if (channelInstance == null) return;
-        try {
-            Object registrar = proxy.getClass().getMethod("getChannelRegistrar").invoke(proxy);
-            java.lang.reflect.Method registerMethod = null;
-            java.lang.reflect.Method[] methods = registrar.getClass().getMethods();
-            
-            for (java.lang.reflect.Method m : methods) {
-                if (m.getName().equals("register")) {
-                    Class<?>[] params = m.getParameterTypes();
-                    if (params.length == 1 && params[0].isInstance(channelInstance)) {
-                        registerMethod = m;
-                        break;
-                    } else if (params.length == 1 && params[0] == Iterable.class) {
-                        registerMethod = m;
-                        break;
+            Object disconnectListener = new Object() {
+                public void handle(Object event) {
+                    try {
+                        Object player = event.getClass().getMethod("getPlayer").invoke(event);
+                        UUID uuid = (UUID) player.getClass().getMethod("getUniqueId").invoke(player);
+                        String name = (String) player.getClass().getMethod("getUsername").invoke(player);
+
+                        updateMySQL(uuid, name, false);
+                        sendPluginMessage(uuid, name, "logout");
+                        logger.info("玩家 " + name + " 断开代理，已同步状态");
+                    } catch (Exception e) {
+                        logger.severe("处理断开事件失败：" + e.getMessage());
                     }
                 }
-            }
-            
-            if (registerMethod != null) {
-                Class<?> paramType = registerMethod.getParameterTypes()[0];
-                if (paramType == Iterable.class) {
-                    registerMethod.invoke(registrar, java.util.Collections.singletonList(channelInstance));
-                } else {
-                    registerMethod.invoke(registrar, channelInstance);
-                }
+            };
+
+            java.lang.reflect.Method registerMethod = eventManagerClass.getMethod("register", Object.class, Class.class, java.util.function.Consumer.class);
+            registerMethod.invoke(eventManager, this, postLoginClass, (java.util.function.Consumer<Object>) loginListener::handle);
+            registerMethod.invoke(eventManager, this, disconnectClass, (java.util.function.Consumer<Object>) disconnectListener::handle);
+
+            if (pluginChannel != null && pluginChannel.contains(":")) {
+                String[] parts = pluginChannel.split(":", 2);
+                Class<?> channelClass = Class.forName("com.velocitypowered.api.proxy.messages.MinecraftChannelIdentifier");
+                Object channel = channelClass.getMethod("create", String.class, String.class).invoke(null, parts[0], parts[1]);
+                Object registrar = proxy.getClass().getMethod("getChannelRegistrar").invoke(proxy);
+                registrar.getClass().getMethod("register", channelClass).invoke(registrar, channel);
             }
         } catch (Exception e) {
-            logger.severe("注册通道失败：" + e.getMessage());
-        }
-    }
-
-    private void onPlayerLogin(Object event) {
-        try {
-            Object player = event.getClass().getMethod("getPlayer").invoke(event);
-            UUID uuid = (UUID) player.getClass().getMethod("getUniqueId").invoke(player);
-            String name = (String) player.getClass().getMethod("getUsername").invoke(player);
-            
-            onlinePlayers.put(uuid, name);
-            updateMySQL(uuid, name, true);
-            sendPluginMessage(uuid, name, "login");
-
-            logger.info("玩家 " + name + " 登录代理，已同步状态");
-        } catch (Exception e) {
-            logger.severe("处理登录事件失败：" + e.getMessage());
-        }
-    }
-
-    private void onPlayerEvent(Object event) {
-        try {
-            Object player = event.getClass().getMethod("getPlayer").invoke(event);
-            UUID uuid = (UUID) player.getClass().getMethod("getUniqueId").invoke(player);
-            String name = onlinePlayers.get(uuid);
-            
-            if (name != null) {
-                onlinePlayers.remove(uuid);
-                updateMySQL(uuid, name, false);
-                sendPluginMessage(uuid, name, "logout");
-                logger.info("玩家 " + name + " 断开代理，已同步状态");
-            }
-        } catch (Exception e) {
-            logger.severe("处理玩家事件失败：" + e.getMessage());
-        }
-    }
-
-    private void startPlayerCheckTask() {
-        try {
-            Class<?> schedulerClass = Class.forName("com.velocitypowered.api.scheduler.Scheduler");
-            Object scheduler = proxy.getClass().getMethod("getScheduler").invoke(proxy);
-            Class<?> taskClass = Class.forName("com.velocitypowered.api.scheduler.ScheduledTask");
-            
-            java.lang.reflect.Method buildTaskMethod = schedulerClass.getMethod("buildTask", Object.class, Runnable.class);
-            Object taskBuilder = buildTaskMethod.invoke(scheduler, this, (Runnable) this::checkOnlinePlayers);
-            
-            taskBuilder.getClass().getMethod("repeat", long.class, long.class).invoke(taskBuilder, 5000L, 5000L);
-            taskBuilder.getClass().getMethod("schedule").invoke(taskBuilder);
-        } catch (Exception e) {
-            logger.severe("启动定时检测失败：" + e.getMessage());
-        }
-    }
-
-    private void checkOnlinePlayers() {
-        try {
-            Object allPlayers = proxy.getClass().getMethod("getAllPlayers").invoke(proxy);
-            Map<UUID, String> currentOnline = new HashMap<>();
-            
-            for (Object player : (java.lang.Iterable<?>) allPlayers) {
-                UUID uuid = (UUID) player.getClass().getMethod("getUniqueId").invoke(player);
-                String name = (String) player.getClass().getMethod("getUsername").invoke(player);
-                currentOnline.put(uuid, name);
-            }
-            
-            for (Map.Entry<UUID, String> entry : onlinePlayers.entrySet()) {
-                if (!currentOnline.containsKey(entry.getKey())) {
-                    updateMySQL(entry.getKey(), entry.getValue(), false);
-                    sendPluginMessage(entry.getKey(), entry.getValue(), "logout");
-                    logger.info("玩家 " + entry.getValue() + " 离线，已同步状态");
-                    onlinePlayers.remove(entry.getKey());
-                }
-            }
-            
-            for (Map.Entry<UUID, String> entry : currentOnline.entrySet()) {
-                if (!onlinePlayers.containsKey(entry.getKey())) {
-                    updateMySQL(entry.getKey(), entry.getValue(), true);
-                    sendPluginMessage(entry.getKey(), entry.getValue(), "login");
-                    logger.info("玩家 " + entry.getValue() + " 在线，已同步状态");
-                    onlinePlayers.put(entry.getKey(), entry.getValue());
-                }
-            }
-        } catch (Exception e) {
-            logger.severe("检测玩家状态失败：" + e.getMessage());
+            logger.severe("初始化插件失败：" + e.getMessage());
         }
     }
 
@@ -293,16 +165,20 @@ public class VelocityMain {
     }
 
     private void sendPluginMessage(UUID uuid, String name, String type) {
-        if (channelInstance == null) return;
+        if (pluginChannel == null || !pluginChannel.contains(":")) return;
         try {
+            String[] parts = pluginChannel.split(":", 2);
+            Class<?> channelClass = Class.forName("com.velocitypowered.api.proxy.messages.MinecraftChannelIdentifier");
+            Object channel = channelClass.getMethod("create", String.class, String.class).invoke(null, parts[0], parts[1]);
             String msg = type + "|" + uuid + "|" + name;
             byte[] msgBytes = msg.getBytes();
+
             Object servers = proxy.getClass().getMethod("getAllServers").invoke(proxy);
             Class<?> serverClass = Class.forName("com.velocitypowered.api.proxy.server.RegisteredServer");
-            java.lang.reflect.Method sendMethod = serverClass.getMethod("sendPluginMessage", channelInstance.getClass(), byte[].class);
-            
+            java.lang.reflect.Method sendMethod = serverClass.getMethod("sendPluginMessage", channelClass, byte[].class);
+
             for (Object server : (java.lang.Iterable<?>) servers) {
-                sendMethod.invoke(server, channelInstance, msgBytes);
+                sendMethod.invoke(server, channel, msgBytes);
             }
         } catch (Exception e) {
             logger.severe("发送PluginMessage失败：" + e.getMessage());
