@@ -1,7 +1,7 @@
 dependencies {
-    // Velocity API
-    compileOnly("com.velocitypowered:velocity-api:3.3.0-SNAPSHOT")
-    annotationProcessor("com.velocitypowered:velocity-api:3.3.0-SNAPSHOT")
+    // 稳定版API（3.2.0是稳定版，适配事件路径）
+    compileOnly("com.velocitypowered:velocity-api:3.2.0")
+    annotationProcessor("com.velocitypowered:velocity-api:3.2.0")
     
     // MySQL连接池+驱动+配置解析
     implementation("com.zaxxer:HikariCP:5.0.1")
