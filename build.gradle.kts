@@ -5,7 +5,14 @@ plugins {
 allprojects {
     group = "com.baiying"
     version = "1.0.0"
-    java.sourceCompatibility = JavaVersion.VERSION_17
+
+    // 仅对应用了java插件的子项目配置sourceCompatibility
+    plugins.withId("java") {
+        java {
+            sourceCompatibility = JavaVersion.VERSION_17
+            targetCompatibility = JavaVersion.VERSION_17 // 新增targetCompatibility，保证编译输出兼容
+        }
+    }
 
     repositories {
         mavenCentral()
