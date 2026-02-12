@@ -91,41 +91,35 @@ public class VelocityMain {
             Class<?> postLoginClass = Class.forName("com.velocitypowered.api.event.connection.PostLoginEvent");
             Class<?> disconnectClass = Class.forName("com.velocitypowered.api.event.connection.DisconnectEvent");
 
-            Object loginListener = new Object() {
-                public void handle(Object event) {
-                    try {
-                        Object player = event.getClass().getMethod("getPlayer").invoke(event);
-                        UUID uuid = (UUID) player.getClass().getMethod("getUniqueId").invoke(player);
-                        String name = (String) player.getClass().getMethod("getUsername").invoke(player);
-
-                        updateMySQL(uuid, name, true);
-                        sendPluginMessage(uuid, name, "login");
-                        logger.info("玩家 " + name + " 登录代理，已同步状态");
-                    } catch (Exception e) {
-                        logger.severe("处理登录事件失败：" + e.getMessage());
-                    }
-                }
-            };
-
-            Object disconnectListener = new Object() {
-                public void handle(Object event) {
-                    try {
-                        Object player = event.getClass().getMethod("getPlayer").invoke(event);
-                        UUID uuid = (UUID) player.getClass().getMethod("getUniqueId").invoke(player);
-                        String name = (String) player.getClass().getMethod("getUsername").invoke(player);
-
-                        updateMySQL(uuid, name, false);
-                        sendPluginMessage(uuid, name, "logout");
-                        logger.info("玩家 " + name + " 断开代理，已同步状态");
-                    } catch (Exception e) {
-                        logger.severe("处理断开事件失败：" + e.getMessage());
-                    }
-                }
-            };
-
             java.lang.reflect.Method registerMethod = eventManagerClass.getMethod("register", Object.class, Class.class, java.util.function.Consumer.class);
-            registerMethod.invoke(eventManager, this, postLoginClass, (java.util.function.Consumer<Object>) loginListener::handle);
-            registerMethod.invoke(eventManager, this, disconnectClass, (java.util.function.Consumer<Object>) disconnectListener::handle);
+            
+            registerMethod.invoke(eventManager, this, postLoginClass, (java.util.function.Consumer<Object>) event -> {
+                try {
+                    Object player = event.getClass().getMethod("getPlayer").invoke(event);
+                    UUID uuid = (UUID) player.getClass().getMethod("getUniqueId").invoke(player);
+                    String name = (String) player.getClass().getMethod("getUsername").invoke(player);
+
+                    updateMySQL(uuid, name, true);
+                    sendPluginMessage(uuid, name, "login");
+                    logger.info("玩家 " + name + " 登录代理，已同步状态");
+                } catch (Exception e) {
+                    logger.severe("处理登录事件失败：" + e.getMessage());
+                }
+            });
+            
+            registerMethod.invoke(eventManager, this, disconnectClass, (java.util.function.Consumer<Object>) event -> {
+                try {
+                    Object player = event.getClass().getMethod("getPlayer").invoke(event);
+                    UUID uuid = (UUID) player.getClass().getMethod("getUniqueId").invoke(player);
+                    String name = (String) player.getClass().getMethod("getUsername").invoke(player);
+
+                    updateMySQL(uuid, name, false);
+                    sendPluginMessage(uuid, name, "logout");
+                    logger.info("玩家 " + name + " 断开代理，已同步状态");
+                } catch (Exception e) {
+                    logger.severe("处理断开事件失败：" + e.getMessage());
+                }
+            });
 
             if (pluginChannel != null && pluginChannel.contains(":")) {
                 String[] parts = pluginChannel.split(":", 2);
