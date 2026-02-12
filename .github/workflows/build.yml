@@ -33,12 +33,3 @@ jobs:
         with:
           name: PillowDream_joinmass
           path: build/libs/
-
-      # 打Tag时自动发布Release
-      - name: 发布Release
-        if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v2
-        with:
-          files: build/libs/*.jar
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
