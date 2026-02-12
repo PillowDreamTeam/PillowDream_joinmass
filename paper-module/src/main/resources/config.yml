@@ -1,0 +1,6 @@
+# PluginMessage通道名（必须和Velocity端一致）
+plugin_message_channel: "pillowdream:joinmass"
+
+# 消息格式
+login_message: "§a{player} 加入了服务器！"
+logout_message: "§c{player} 离开了服务器！"
