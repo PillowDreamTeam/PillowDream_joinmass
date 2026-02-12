@@ -6,17 +6,21 @@ allprojects {
     group = "com.baiying"
     version = "1.0.0"
 
-    // 仅对应用了java插件的子项目配置sourceCompatibility
-    plugins.withId("java") {
-        java {
-            sourceCompatibility = JavaVersion.VERSION_17
-            targetCompatibility = JavaVersion.VERSION_17 // 新增targetCompatibility，保证编译输出兼容
-        }
-    }
-
     repositories {
         mavenCentral()
         maven("https://repo.papermc.io/repository/maven-public/")
+    }
+}
+
+// 只为子模块单独配置Java版本（避开根项目语法问题）
+subprojects {
+    apply(plugin = "java") // 子项目统一应用java插件
+    apply(plugin = "com.github.johnrengelman.shadow") // 子项目统一应用shadow插件
+
+    // 正确配置Java版本（Kotlin DSL标准写法）
+    configure<JavaPluginExtension> {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
     }
 }
 
