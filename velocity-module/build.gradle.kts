@@ -1,12 +1,17 @@
 dependencies {
-    // 稳定版API（3.2.0是稳定版，适配事件路径）
-    compileOnly("com.velocitypowered:velocity-api:3.2.0")
-    annotationProcessor("com.velocitypowered:velocity-api:3.2.0")
+    compileOnly("com.velocitypowered:velocity-api:3.1.2")
+    annotationProcessor("com.velocitypowered:velocity-api:3.1.2")
     
     // MySQL连接池+驱动+配置解析
     implementation("com.zaxxer:HikariCP:5.0.1")
     implementation("com.moandjiezana.toml:toml4j:0.7.2")
     implementation("mysql:mysql-connector-java:8.0.33")
+}
+
+repositories {
+    mavenCentral()
+    maven("https://repo.papermc.io/repository/maven-public/")
+    maven("https://repo.velocitypowered.com/snapshots/") // Velocity官方仓库
 }
 
 tasks.shadowJar {
