@@ -1,0 +1,11 @@
+# MySQL配置
+[mysql]
+host = "localhost"
+port = 3306
+database = "mc_groupchat"
+username = "root"
+password = "your_mysql_password"
+pool_size = 10
+
+# PluginMessage通道名
+plugin_message_channel = "pillowdream:joinmass"
