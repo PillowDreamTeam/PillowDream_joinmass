@@ -40,15 +40,17 @@ public class VelocityMain {
         this.logger = logger;
         this.dataDir = dataDir;
 
+        // 1. 加载配置
         loadConfig();
-        // 修正反射调用逻辑
-        registerEventsFixed();
-        registerChannelFixed();
+        
+        // 2. 仅适配Velocity 3.4.x的事件/通道注册
+        registerEventsFor34x();
+        registerChannelFor34x();
 
         logger.info("PillowDream_joinmass (Velocity) 插件启动成功！作者：BaiYing");
     }
 
-    // 原有loadConfig方法不变，此处省略（保持和之前一致）
+    // 加载配置（保持不变）
     private void loadConfig() {
         File configFile = dataDir.resolve("config.toml").toFile();
         if (!configFile.exists()) {
@@ -87,88 +89,71 @@ public class VelocityMain {
         }
     }
 
-    // 修复后的事件注册方法（匹配Velocity 3.x真实API签名）
-    private void registerEventsFixed() {
+    // 适配Velocity 3.4.x的事件注册（PlayerDisconnectedEvent + 正确方法签名）
+    private void registerEventsFor34x() {
         try {
-            // 1. 获取EventManager实例（正确）
+            // 1. 获取EventManager
             Class<?> eventManagerClass = Class.forName("com.velocitypowered.api.event.EventManager");
             Object eventManager = proxy.getClass().getMethod("getEventManager").invoke(proxy);
 
-            // 2. 加载事件类（正确）
+            // 2. 3.4.x的事件类：PlayerDisconnectedEvent回到connection包
             Class<?> postLoginEventClass = Class.forName("com.velocitypowered.api.event.connection.PostLoginEvent");
-            Class<?> playerLeaveEventClass = Class.forName("com.velocitypowered.api.event.player.PlayerLeaveEvent");
+            Class<?> disconnectEventClass = Class.forName("com.velocitypowered.api.event.connection.PlayerDisconnectedEvent");
 
-            // 3. 修正register方法调用：Velocity 3.x的register方法签名是 (Object plugin, Class<T> eventClass, Consumer<T> listener)
-            // 方法1：优先尝试标准签名（3.x主流版本）
-            try {
-                // 注册登录事件
-                eventManagerClass.getMethod("register", Object.class, Class.class, java.util.function.Consumer.class)
-                        .invoke(eventManager, this, postLoginEventClass, (java.util.function.Consumer<Object>) this::onPlayerLogin);
-                // 注册退出事件
-                eventManagerClass.getMethod("register", Object.class, Class.class, java.util.function.Consumer.class)
-                        .invoke(eventManager, this, playerLeaveEventClass, (java.util.function.Consumer<Object>) this::onPlayerLeave);
-                logger.info("事件注册成功（标准签名）！");
-            } catch (NoSuchMethodException e) {
-                // 方法2：兼容旧版本签名（3.0.x）
-                eventManagerClass.getMethod("register", Object.class, Class.class, Object.class)
-                        .invoke(eventManager, this, postLoginEventClass, (java.util.function.Consumer<Object>) this::onPlayerLogin);
-                eventManagerClass.getMethod("register", Object.class, Class.class, Object.class)
-                        .invoke(eventManager, this, playerLeaveEventClass, (java.util.function.Consumer<Object>) this::onPlayerLeave);
-                logger.info("事件注册成功（兼容旧版本签名）！");
-            }
+            // 3. 3.4.x的register方法签名：(Object plugin, Consumer<T> listener)
+            // 先注册登录事件
+            eventManagerClass.getMethod("register", Object.class, Class.class, java.util.function.Consumer.class)
+                    .invoke(eventManager, this, postLoginEventClass, (java.util.function.Consumer<Object>) this::onPlayerLogin);
+            // 注册断开事件（替代原LeaveEvent）
+            eventManagerClass.getMethod("register", Object.class, Class.class, java.util.function.Consumer.class)
+                    .invoke(eventManager, this, disconnectEventClass, (java.util.function.Consumer<Object>) this::onPlayerDisconnect);
+
+            logger.info("✅ Velocity 3.4.x事件注册成功！");
+        } catch (ClassNotFoundException e) {
+            logger.severe("❌ 事件类找不到：" + e.getMessage());
+            logger.severe("  请确认Velocity版本为3.4.x，或检查事件类路径是否正确");
+        } catch (NoSuchMethodException e) {
+            logger.severe("❌ 事件注册方法找不到：" + e.getMessage());
+            logger.severe("  方法签名不匹配，当前Velocity版本可能不是3.4.x");
         } catch (Exception e) {
-            // 打印详细异常（包含方法签名/类路径）
-            logger.severe("注册事件失败：" + e.getMessage());
-            logger.severe("异常详情：");
+            logger.severe("❌ 注册事件失败：" + e.getMessage());
             for (StackTraceElement elem : e.getStackTrace()) {
-                logger.severe("  " + elem.toString());
+                logger.severe("  " + elem);
             }
         }
     }
 
-    // 修复后的通道注册方法（匹配Velocity 3.x真实API签名）
-    private void registerChannelFixed() {
-        if (pluginChannel == null || pluginChannel.isEmpty()) {
-            logger.severe("插件通道配置为空，跳过通道注册！");
+    // 适配Velocity 3.4.x的通道注册（仅单参数register）
+    private void registerChannelFor34x() {
+        if (pluginChannel == null || !pluginChannel.contains(":")) {
+            logger.severe("❌ 插件通道配置错误，格式应为 namespace:name，当前：" + pluginChannel);
             return;
         }
 
         try {
-            // 1. 分割通道名（格式：namespace:name）
-            String[] channelParts = pluginChannel.split(":");
-            if (channelParts.length != 2) {
-                logger.severe("插件通道格式错误，应为 namespace:name，当前：" + pluginChannel);
-                return;
-            }
-
-            // 2. 创建MinecraftChannelIdentifier实例（正确）
+            // 1. 分割通道名
+            String[] channelParts = pluginChannel.split(":", 2);
+            // 2. 创建ChannelIdentifier
             Class<?> channelClass = Class.forName("com.velocitypowered.api.proxy.messages.MinecraftChannelIdentifier");
             Object channel = channelClass.getMethod("create", String.class, String.class)
                     .invoke(null, channelParts[0], channelParts[1]);
-
-            // 3. 获取ChannelRegistrar并注册（修正方法调用）
+            // 3. 3.4.x的ChannelRegistrar仅支持单参数register
             Object channelRegistrar = proxy.getClass().getMethod("getChannelRegistrar").invoke(proxy);
-            // 优先尝试标准register方法
-            try {
-                channelRegistrar.getClass().getMethod("register", channelClass).invoke(channelRegistrar, channel);
-                logger.info("插件通道注册成功：" + pluginChannel);
-            } catch (NoSuchMethodException e) {
-                // 兼容旧版本（批量注册）
-                channelRegistrar.getClass().getMethod("register", Iterable.class)
-                        .invoke(channelRegistrar, java.util.Collections.singletonList(channel));
-                logger.info("插件通道注册成功（兼容旧版本）：" + pluginChannel);
-            }
+            channelRegistrar.getClass().getMethod("register", channelClass).invoke(channelRegistrar, channel);
+
+            logger.info("✅ 插件通道注册成功：" + pluginChannel);
+        } catch (NoSuchMethodException e) {
+            logger.severe("❌ 通道注册方法找不到：" + e.getMessage());
+            logger.severe("  当前Velocity版本不支持单参数register，确认版本为3.4.x");
         } catch (Exception e) {
-            // 打印详细异常
-            logger.severe("注册通道失败：" + e.getMessage());
-            logger.severe("异常详情：");
+            logger.severe("❌ 注册通道失败：" + e.getMessage());
             for (StackTraceElement elem : e.getStackTrace()) {
-                logger.severe("  " + elem.toString());
+                logger.severe("  " + elem);
             }
         }
     }
 
-    // 原有onPlayerLogin方法不变，此处省略
+    // 玩家登录事件处理（不变）
     private void onPlayerLogin(Object event) {
         try {
             Object player = event.getClass().getMethod("getPlayer").invoke(event);
@@ -178,14 +163,14 @@ public class VelocityMain {
             updateMySQL(uuid, name, true);
             sendPluginMessage(uuid, name, "login");
 
-            logger.info("玩家 " + name + " 登录代理，已同步状态");
+            logger.info("👤 玩家 " + name + " 登录代理，状态已同步");
         } catch (Exception e) {
-            logger.severe("处理登录事件失败：" + e.getMessage());
+            logger.severe("❌ 处理登录事件失败：" + e.getMessage());
         }
     }
 
-    // 原有onPlayerLeave方法不变，此处省略
-    private void onPlayerLeave(Object event) {
+    // 玩家断开事件处理（适配3.4.x的PlayerDisconnectedEvent）
+    private void onPlayerDisconnect(Object event) {
         try {
             Object player = event.getClass().getMethod("getPlayer").invoke(event);
             UUID uuid = (UUID) player.getClass().getMethod("getUniqueId").invoke(player);
@@ -194,16 +179,21 @@ public class VelocityMain {
             updateMySQL(uuid, name, false);
             sendPluginMessage(uuid, name, "logout");
 
-            logger.info("玩家 " + name + " 断开代理，已同步状态");
+            logger.info("👤 玩家 " + name + " 断开代理，状态已同步");
         } catch (Exception e) {
-            logger.severe("处理退出事件失败：" + e.getMessage());
+            logger.severe("❌ 处理断开事件失败：" + e.getMessage());
         }
     }
 
-    // 原有updateMySQL方法不变，此处省略
+    // MySQL状态更新（不变）
     private void updateMySQL(UUID uuid, String name, boolean isOnline) {
+        if (mysqlHost == null || mysqlDb == null || mysqlUser == null) {
+            logger.severe("❌ MySQL配置未加载，跳过状态更新");
+            return;
+        }
+
         try (Connection conn = DriverManager.getConnection(
-                "jdbc:mysql://" + mysqlHost + ":" + mysqlPort + "/" + mysqlDb + "?useSSL=false&serverTimezone=UTC",
+                "jdbc:mysql://" + mysqlHost + ":" + mysqlPort + "/" + mysqlDb + "?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true",
                 mysqlUser, mysqlPwd)) {
             if (isOnline) {
                 String sql = "INSERT INTO mc_player_online_status (uuid, username, is_online) VALUES (?, ?, 1) ON DUPLICATE KEY UPDATE username=?, is_online=1";
@@ -221,32 +211,39 @@ public class VelocityMain {
                 }
             }
         } catch (SQLException e) {
-            logger.severe("更新MySQL失败：" + e.getMessage());
+            logger.severe("❌ MySQL更新失败：" + e.getMessage());
         }
     }
 
-    // 原有sendPluginMessage方法不变，此处省略
+    // 发送PluginMessage到子服（不变）
     private void sendPluginMessage(UUID uuid, String name, String type) {
+        if (pluginChannel == null || !pluginChannel.contains(":")) {
+            logger.severe("❌ 插件通道配置错误，跳过消息发送");
+            return;
+        }
+
         try {
+            String[] channelParts = pluginChannel.split(":", 2);
             String msg = type + "|" + uuid + "|" + name;
             byte[] msgBytes = msg.getBytes();
 
-            Object servers = proxy.getClass().getMethod("getAllServers").invoke(proxy);
-            Class<?> serverClass = Class.forName("com.velocitypowered.api.proxy.server.RegisteredServer");
             Class<?> channelClass = Class.forName("com.velocitypowered.api.proxy.messages.MinecraftChannelIdentifier");
             Object channel = channelClass.getMethod("create", String.class, String.class)
-                    .invoke(null, pluginChannel.split(":")[0], pluginChannel.split(":")[1]);
+                    .invoke(null, channelParts[0], channelParts[1]);
 
+            Object servers = proxy.getClass().getMethod("getAllServers").invoke(proxy);
+            Class<?> serverClass = Class.forName("com.velocitypowered.api.proxy.server.RegisteredServer");
             for (Object server : (java.lang.Iterable<?>) servers) {
                 serverClass.getMethod("sendPluginMessage", channelClass, byte[].class)
                         .invoke(server, channel, msgBytes);
             }
         } catch (Exception e) {
-            logger.severe("发送PluginMessage失败：" + e.getMessage());
+            logger.severe("❌ 发送PluginMessage失败：" + e.getMessage());
         }
     }
 
+    // 插件关闭
     public void onDisable() {
-        logger.info("PillowDream_joinmass (Velocity) 插件已关闭！作者：BaiYing");
+        logger.info("🔌 PillowDream_joinmass (Velocity) 插件已关闭！作者：BaiYing");
     }
 }
