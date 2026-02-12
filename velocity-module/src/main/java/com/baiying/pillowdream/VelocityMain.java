@@ -13,6 +13,8 @@ import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.UUID;
 import java.util.logging.Logger;
 
@@ -33,8 +35,8 @@ public class VelocityMain {
     private String mysqlUser;
     private String mysqlPwd;
     private String pluginChannel;
-    private Class<?> disconnectEventClass;
     private Object channelInstance;
+    private final Map<UUID, String> onlinePlayers = new HashMap<>();
 
     @Inject
     public VelocityMain(ProxyServer proxy, Logger logger, @DataDirectory Path dataDir) {
@@ -43,9 +45,8 @@ public class VelocityMain {
         this.dataDir = dataDir;
 
         loadConfig();
-        findDisconnectEventClass();
         createChannelInstance();
-        registerEvents();
+        registerPlayerEvents();
         registerChannel();
 
         logger.info("PillowDream_joinmass (Velocity) 插件启动成功！作者：BaiYing");
@@ -89,22 +90,6 @@ public class VelocityMain {
         }
     }
 
-    private void findDisconnectEventClass() {
-        String[] paths = {
-            "com.velocitypowered.api.event.connection.PlayerDisconnectedEvent",
-            "com.velocitypowered.api.event.player.PlayerDisconnectedEvent",
-            "com.velocitypowered.api.event.player.PlayerLeaveEvent"
-        };
-        for (String path : paths) {
-            try {
-                disconnectEventClass = Class.forName(path);
-                break;
-            } catch (Exception e) {
-                continue;
-            }
-        }
-    }
-
     private void createChannelInstance() {
         if (pluginChannel == null || !pluginChannel.contains(":")) return;
         String[] parts = pluginChannel.split(":", 2);
@@ -116,15 +101,12 @@ public class VelocityMain {
         }
     }
 
-    private void registerEvents() {
-        if (disconnectEventClass == null) {
-            logger.severe("未找到玩家断开事件类");
-            return;
-        }
+    private void registerPlayerEvents() {
         try {
             Class<?> eventManagerClass = Class.forName("com.velocitypowered.api.event.EventManager");
             Object eventManager = proxy.getClass().getMethod("getEventManager").invoke(proxy);
             Class<?> postLoginClass = Class.forName("com.velocitypowered.api.event.connection.PostLoginEvent");
+            Class<?> playerClass = Class.forName("com.velocitypowered.api.proxy.Player");
             
             java.lang.reflect.Method registerMethod = null;
             java.lang.reflect.Method[] methods = eventManagerClass.getMethods();
@@ -140,10 +122,33 @@ public class VelocityMain {
             
             if (registerMethod != null) {
                 registerMethod.invoke(eventManager, this, postLoginClass, (java.util.function.Consumer<Object>) this::onPlayerLogin);
-                registerMethod.invoke(eventManager, this, disconnectEventClass, (java.util.function.Consumer<Object>) this::onPlayerDisconnect);
+                
+                Class<?> disconnectClass = null;
+                String[] allPaths = {
+                    "com.velocitypowered.api.event.connection.PlayerDisconnectedEvent",
+                    "com.velocitypowered.api.event.player.PlayerDisconnectedEvent",
+                    "com.velocitypowered.api.event.player.PlayerLeaveEvent",
+                    "com.velocitypowered.api.event.player.PlayerEvent",
+                    "com.velocitypowered.api.event.connection.DisconnectEvent"
+                };
+                for (String path : allPaths) {
+                    try {
+                        disconnectClass = Class.forName(path);
+                        break;
+                    } catch (Exception e) {
+                        continue;
+                    }
+                }
+                
+                if (disconnectClass != null) {
+                    registerMethod.invoke(eventManager, this, disconnectClass, (java.util.function.Consumer<Object>) this::onPlayerEvent);
+                } else {
+                    startPlayerCheckTask();
+                }
             }
         } catch (Exception e) {
-            logger.severe("注册事件失败：" + e.getMessage());
+            startPlayerCheckTask();
+            logger.severe("注册事件失败，启用定时检测：" + e.getMessage());
         }
     }
 
@@ -185,7 +190,8 @@ public class VelocityMain {
             Object player = event.getClass().getMethod("getPlayer").invoke(event);
             UUID uuid = (UUID) player.getClass().getMethod("getUniqueId").invoke(player);
             String name = (String) player.getClass().getMethod("getUsername").invoke(player);
-
+            
+            onlinePlayers.put(uuid, name);
             updateMySQL(uuid, name, true);
             sendPluginMessage(uuid, name, "login");
 
@@ -195,18 +201,69 @@ public class VelocityMain {
         }
     }
 
-    private void onPlayerDisconnect(Object event) {
+    private void onPlayerEvent(Object event) {
         try {
             Object player = event.getClass().getMethod("getPlayer").invoke(event);
             UUID uuid = (UUID) player.getClass().getMethod("getUniqueId").invoke(player);
-            String name = (String) player.getClass().getMethod("getUsername").invoke(player);
-
-            updateMySQL(uuid, name, false);
-            sendPluginMessage(uuid, name, "logout");
-
-            logger.info("玩家 " + name + " 断开代理，已同步状态");
+            String name = onlinePlayers.get(uuid);
+            
+            if (name != null) {
+                onlinePlayers.remove(uuid);
+                updateMySQL(uuid, name, false);
+                sendPluginMessage(uuid, name, "logout");
+                logger.info("玩家 " + name + " 断开代理，已同步状态");
+            }
         } catch (Exception e) {
-            logger.severe("处理断开事件失败：" + e.getMessage());
+            logger.severe("处理玩家事件失败：" + e.getMessage());
+        }
+    }
+
+    private void startPlayerCheckTask() {
+        try {
+            Class<?> schedulerClass = Class.forName("com.velocitypowered.api.scheduler.Scheduler");
+            Object scheduler = proxy.getClass().getMethod("getScheduler").invoke(proxy);
+            Class<?> taskClass = Class.forName("com.velocitypowered.api.scheduler.ScheduledTask");
+            
+            java.lang.reflect.Method buildTaskMethod = schedulerClass.getMethod("buildTask", Object.class, Runnable.class);
+            Object taskBuilder = buildTaskMethod.invoke(scheduler, this, (Runnable) this::checkOnlinePlayers);
+            
+            taskBuilder.getClass().getMethod("repeat", long.class, long.class).invoke(taskBuilder, 5000L, 5000L);
+            taskBuilder.getClass().getMethod("schedule").invoke(taskBuilder);
+        } catch (Exception e) {
+            logger.severe("启动定时检测失败：" + e.getMessage());
+        }
+    }
+
+    private void checkOnlinePlayers() {
+        try {
+            Object allPlayers = proxy.getClass().getMethod("getAllPlayers").invoke(proxy);
+            Map<UUID, String> currentOnline = new HashMap<>();
+            
+            for (Object player : (java.lang.Iterable<?>) allPlayers) {
+                UUID uuid = (UUID) player.getClass().getMethod("getUniqueId").invoke(player);
+                String name = (String) player.getClass().getMethod("getUsername").invoke(player);
+                currentOnline.put(uuid, name);
+            }
+            
+            for (Map.Entry<UUID, String> entry : onlinePlayers.entrySet()) {
+                if (!currentOnline.containsKey(entry.getKey())) {
+                    updateMySQL(entry.getKey(), entry.getValue(), false);
+                    sendPluginMessage(entry.getKey(), entry.getValue(), "logout");
+                    logger.info("玩家 " + entry.getValue() + " 离线，已同步状态");
+                    onlinePlayers.remove(entry.getKey());
+                }
+            }
+            
+            for (Map.Entry<UUID, String> entry : currentOnline.entrySet()) {
+                if (!onlinePlayers.containsKey(entry.getKey())) {
+                    updateMySQL(entry.getKey(), entry.getValue(), true);
+                    sendPluginMessage(entry.getKey(), entry.getValue(), "login");
+                    logger.info("玩家 " + entry.getValue() + " 在线，已同步状态");
+                    onlinePlayers.put(entry.getKey(), entry.getValue());
+                }
+            }
+        } catch (Exception e) {
+            logger.severe("检测玩家状态失败：" + e.getMessage());
         }
     }
 
