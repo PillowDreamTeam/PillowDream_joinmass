@@ -1,0 +1,9 @@
+{
+  "id": "pillowdream_joinmass",
+  "name": "PillowDream_joinmass",
+  "version": "1.0.0",
+  "description": "同步群组服进退服消息",
+  "authors": ["BaiYing"],
+  "dependencies": [],
+  "main": "com.baiying.pillowdream.VelocityMain"
+}
