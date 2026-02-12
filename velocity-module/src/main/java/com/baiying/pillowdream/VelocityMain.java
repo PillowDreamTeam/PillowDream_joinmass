@@ -3,7 +3,8 @@ package com.baiying.pillowdream;
 import com.moandjiezana.toml.Toml;
 import com.velocitypowered.api.event.Subscribe;
 import com.velocitypowered.api.event.connection.PostLoginEvent;
-import com.velocitypowered.api.event.connection.PlayerDisconnectedEvent;
+// 1. 修正导入路径：从connection包改为player包
+import com.velocitypowered.api.event.player.PlayerDisconnectedEvent;
 import com.velocitypowered.api.event.proxy.ProxyInitializeEvent;
 import com.velocitypowered.api.plugin.Plugin;
 import com.velocitypowered.api.plugin.annotation.DataDirectory;
@@ -90,7 +91,7 @@ public class VelocityMain {
         }).schedule();
     }
 
-    // 玩家断开代理
+    // 2. 事件类名不变，仅导入路径修正后即可正常使用
     @Subscribe
     public void onPlayerDisconnect(PlayerDisconnectedEvent event) {
         UUID playerUuid = event.getPlayer().getUniqueId();
