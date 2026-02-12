@@ -20,6 +20,9 @@ jobs:
           distribution: 'temurin'
           cache: gradle
 
+      - name: 赋予gradlew执行权限  # 新增这一步
+        run: chmod +x ./gradlew
+
       - name: 构建插件
         run: ./gradlew buildAll
 
