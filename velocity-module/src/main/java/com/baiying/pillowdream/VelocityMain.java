@@ -1,5 +1,10 @@
 package com.baiying.pillowdream;
 
+import com.velocitypowered.api.plugin.Plugin;
+import com.velocitypowered.api.plugin.annotation.DataDirectory;
+import com.velocitypowered.api.proxy.ProxyServer;
+
+import javax.inject.Inject;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -11,11 +16,18 @@ import java.sql.SQLException;
 import java.util.UUID;
 import java.util.logging.Logger;
 
-// 运行时动态绑定Velocity API，编译时无需依赖
+// 恢复Velocity标准插件注解
+@Plugin(
+        id = "pillowdream_joinmass",
+        name = "PillowDream_joinmass",
+        version = "1.0.0",
+        description = "同步群组服进退服消息",
+        authors = {"BaiYing"}
+)
 public class VelocityMain {
-    private Object proxy; // Velocity ProxyServer实例
-    private Logger logger;
-    private Path dataDir;
+    private final ProxyServer proxy; // 注入的ProxyServer
+    private final Logger logger;
+    private final Path dataDir;
     private String mysqlHost;
     private int mysqlPort;
     private String mysqlDb;
@@ -23,17 +35,16 @@ public class VelocityMain {
     private String mysqlPwd;
     private String pluginChannel;
 
-    // 插件初始化方法（Velocity调用）
-    public void onEnable(Object proxy, Logger logger, Path dataDir) {
+    // 1. 关键修复：添加@Inject注解的构造函数（Velocity Guice注入要求）
+    @Inject
+    public VelocityMain(ProxyServer proxy, Logger logger, @DataDirectory Path dataDir) {
         this.proxy = proxy;
         this.logger = logger;
         this.dataDir = dataDir;
 
-        // 加载配置
+        // 插件初始化
         loadConfig();
-        // 注册事件监听（反射）
         registerEvents();
-        // 注册PluginMessage通道（反射）
         registerChannel();
 
         logger.info("PillowDream_joinmass (Velocity) 插件启动成功！作者：BaiYing");
@@ -84,9 +95,12 @@ public class VelocityMain {
         try {
             Class<?> eventManagerClass = Class.forName("com.velocitypowered.api.event.EventManager");
             Object eventManager = proxy.getClass().getMethod("getEventManager").invoke(proxy);
+            
+            // 注册登录事件
             eventManagerClass.getMethod("register", Object.class, Class.class, Object.class)
                     .invoke(eventManager, this, Class.forName("com.velocitypowered.api.event.connection.PostLoginEvent"), 
                             (java.util.function.Consumer<Object>) this::onPlayerLogin);
+            // 注册退出事件
             eventManagerClass.getMethod("register", Object.class, Class.class, Object.class)
                     .invoke(eventManager, this, Class.forName("com.velocitypowered.api.event.player.PlayerLeaveEvent"), 
                             (java.util.function.Consumer<Object>) this::onPlayerLeave);
@@ -192,15 +206,8 @@ public class VelocityMain {
         }
     }
 
-    // 插件关闭方法
+    // 插件关闭方法（Velocity会自动调用）
     public void onDisable() {
         logger.info("PillowDream_joinmass (Velocity) 插件已关闭！作者：BaiYing");
-    }
-
-    // Velocity插件入口（反射绑定）
-    public static class EntryPoint {
-        public EntryPoint(Object proxy, Logger logger, Path dataDir) {
-            new VelocityMain().onEnable(proxy, logger, dataDir);
-        }
     }
 }
