@@ -1,0 +1,7 @@
+name: PillowDream_joinmass
+version: 1.0.0
+main: com.baiying.pillowdream.PaperMain
+api-version: 1.20
+authors: ["BaiYing"]
+description: 同步群组服进退服消息
+load: STARTUP
