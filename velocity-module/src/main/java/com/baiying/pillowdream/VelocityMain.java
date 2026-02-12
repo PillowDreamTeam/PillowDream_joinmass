@@ -16,7 +16,7 @@ import java.sql.SQLException;
 import java.util.UUID;
 import java.util.logging.Logger;
 
-// 恢复Velocity标准插件注解
+// 使用本地模拟的Plugin注解
 @Plugin(
         id = "pillowdream_joinmass",
         name = "PillowDream_joinmass",
@@ -25,7 +25,7 @@ import java.util.logging.Logger;
         authors = {"BaiYing"}
 )
 public class VelocityMain {
-    private final ProxyServer proxy; // 注入的ProxyServer
+    private final ProxyServer proxy; // 本地模拟的ProxyServer
     private final Logger logger;
     private final Path dataDir;
     private String mysqlHost;
@@ -35,7 +35,7 @@ public class VelocityMain {
     private String mysqlPwd;
     private String pluginChannel;
 
-    // 1. 关键修复：添加@Inject注解的构造函数（Velocity Guice注入要求）
+    // 使用本地模拟的Inject注解
     @Inject
     public VelocityMain(ProxyServer proxy, Logger logger, @DataDirectory Path dataDir) {
         this.proxy = proxy;
@@ -50,7 +50,7 @@ public class VelocityMain {
         logger.info("PillowDream_joinmass (Velocity) 插件启动成功！作者：BaiYing");
     }
 
-    // 加载配置（简化版，无toml依赖）
+    // 加载配置（简化版）
     private void loadConfig() {
         File configFile = dataDir.resolve("config.toml").toFile();
         if (!configFile.exists()) {
@@ -74,7 +74,7 @@ public class VelocityMain {
             }
         }
 
-        // 简化配置读取（按行解析）
+        // 简化配置读取
         try {
             for (String line : Files.readAllLines(configFile.toPath())) {
                 line = line.trim();
@@ -90,7 +90,7 @@ public class VelocityMain {
         }
     }
 
-    // 注册事件监听（反射调用Velocity API）
+    // 注册事件监听（反射）
     private void registerEvents() {
         try {
             Class<?> eventManagerClass = Class.forName("com.velocitypowered.api.event.EventManager");
@@ -122,7 +122,7 @@ public class VelocityMain {
         }
     }
 
-    // 玩家登录事件（反射处理）
+    // 玩家登录事件（反射）
     private void onPlayerLogin(Object event) {
         try {
             Object player = event.getClass().getMethod("getPlayer").invoke(event);
@@ -140,7 +140,7 @@ public class VelocityMain {
         }
     }
 
-    // 玩家退出事件（反射处理）
+    // 玩家退出事件（反射）
     private void onPlayerLeave(Object event) {
         try {
             Object player = event.getClass().getMethod("getPlayer").invoke(event);
@@ -158,7 +158,7 @@ public class VelocityMain {
         }
     }
 
-    // 更新MySQL状态（简化版，无连接池）
+    // 更新MySQL状态
     private void updateMySQL(UUID uuid, String name, boolean isOnline) {
         try (Connection conn = DriverManager.getConnection(
                 "jdbc:mysql://" + mysqlHost + ":" + mysqlPort + "/" + mysqlDb + "?useSSL=false&serverTimezone=UTC",
@@ -183,7 +183,7 @@ public class VelocityMain {
         }
     }
 
-    // 发送PluginMessage到所有子服（反射）
+    // 发送PluginMessage
     private void sendPluginMessage(UUID uuid, String name, String type) {
         try {
             String msg = type + "|" + uuid + "|" + name;
@@ -206,7 +206,7 @@ public class VelocityMain {
         }
     }
 
-    // 插件关闭方法（Velocity会自动调用）
+    // 插件关闭方法
     public void onDisable() {
         logger.info("PillowDream_joinmass (Velocity) 插件已关闭！作者：BaiYing");
     }
