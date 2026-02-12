@@ -20,11 +20,13 @@ jobs:
           distribution: 'temurin'
           cache: gradle
 
-      - name: 赋予gradlew执行权限  # 新增这一步
-        run: chmod +x ./gradlew
+      - name: 安装Gradle 8.5（跳过wrapper）
+        uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-version: 8.5
 
-      - name: 构建插件
-        run: ./gradlew buildAll
+      - name: 构建插件（直接用gradle命令）
+        run: gradle buildAll
 
       - name: 上传产物
         uses: actions/upload-artifact@v4
