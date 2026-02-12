@@ -5,5 +5,5 @@
   "description": "同步群组服进退服消息",
   "authors": ["BaiYing"],
   "dependencies": [],
-  "main": "com.baiying.pillowdream.VelocityMain$EntryPoint"
+  "main": "com.baiying.pillowdream.VelocityMain"
 }
