@@ -1,8 +1,3 @@
-plugins {
-    id("java")
-    id("com.github.johnrengelman.shadow")
-}
-
 dependencies {
     // Velocity API
     compileOnly("com.velocitypowered:velocity-api:3.3.0-SNAPSHOT")
@@ -20,7 +15,7 @@ tasks.shadowJar {
     relocate("com.zaxxer.hikari", "com.baiying.pillowdream.libs.hikari")
     relocate("com.moandjiezana.toml", "com.baiying.pillowdream.libs.toml")
     relocate("com.mysql.cj", "com.baiying.pillowdream.libs.mysql")
-    destinationDirectory.set(file("../build/libs")) // 统一输出到根项目build/libs
+    destinationDirectory.set(file("../build/libs"))
 }
 
 tasks.build {
